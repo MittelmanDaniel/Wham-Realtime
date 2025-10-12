@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyTorch
+*.pth
+*.pth.tar
+*.ckpt
+*.pt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# SLURM logs
+logs/*.out
+logs/*.err
+slurm-*.out
+
+# Output directories
+output/*/
+!output/.gitkeep
+
+# Checkpoints (large files)
+checkpoints/*.pth
+checkpoints/*.pth.tar
+checkpoints/*.ckpt
+checkpoints/*.pt
+!checkpoints/.gitkeep
+
+# Dataset
+dataset/
+data/
+*.pkl
+*.pickle
+
+# Videos (large files)
+examples/*.mov
+examples/*.mp4
+examples/*.avi
+*.mov
+*.mp4
+*.avi
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# DPVO
+third-party/DPVO/
+
+# System files
+.cache/
+*.log
+
