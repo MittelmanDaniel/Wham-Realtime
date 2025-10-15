@@ -46,7 +46,7 @@ python visualize_framebyframe_smpl.py \
     examples/IMG_9732.mov \
     --smpl-results output/framebyframe_wham/smpl_results_final.pkl \
     --timing-stats output/framebyframe_wham/timing_stats.pkl \
-    --output output/framebyframe_wham/visualization.mp4
+    --output output/framebyframe_wham/visualization_debug.mp4
 
 echo ""
 echo "===================================================="

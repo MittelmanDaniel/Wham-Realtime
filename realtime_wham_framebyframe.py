@@ -166,14 +166,29 @@ class FrameByFrameWHAM:
             self.person_states[person_id]['init_smpl'] = new_hidden_states['prev_pose']
             self.person_states[person_id]['init_root'] = new_hidden_states['prev_root']
             
-            # Extract SMPL parameters
+            # Extract SMPL parameters and vertices  
+            # NOTE: forward_single_frame output has NO time dimension
+            # verts_cam shape: (B, 6890, 3), trans_cam shape: (B, 3)
+            verts_cam = output['verts_cam'][0]  # (6890, 3)
+            trans_cam = output['trans_cam'][0]  # (3,)
+            
+            # DEBUG: Print for first frame
+            if self.frame_count == 0:
+                logger.info(f"DEBUG Frame 0:")
+                logger.info(f"  verts_cam alone range: [{verts_cam.min():.2f}, {verts_cam.max():.2f}]")
+                logger.info(f"  trans_cam: {trans_cam.cpu().numpy()}")
+                final_verts = verts_cam + trans_cam.unsqueeze(0)
+                logger.info(f"  verts + trans range: [{final_verts.min():.2f}, {final_verts.max():.2f}]")
+            
             smpl_params = {
                 'frame_id': self.frame_count,
                 'person_id': person_id,
                 'pose': output['pose'][0, 0].cpu().numpy(),  # (144,) = 24 * 6
                 'betas': output['betas'][0, 0].cpu().numpy(),  # (10,)
-                'trans_cam': output['trans_cam'][0].cpu().numpy(),  # (3,)
+                'trans_cam': trans_cam.cpu().numpy(),  # (3,)
                 'trans_world': output['trans_world'][0].cpu().numpy() if 'trans_world' in output else None,
+                # Save vertices WITHOUT trans_cam - verts_cam is already correct!
+                'verts': verts_cam.cpu().numpy(),  # (6890, 3) - DO NOT ADD trans_cam!
             }
             
             smpl_params_list.append(smpl_params)

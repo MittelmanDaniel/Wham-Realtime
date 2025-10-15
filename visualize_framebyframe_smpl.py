@@ -50,13 +50,15 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
     
     logger.info(f"Results span {len(results_by_frame)} frames")
     
-    # Setup config and models
-    logger.info("Loading WHAM models...")
+    # Setup config
+    logger.info("Setting up config...")
     cfg = get_cfg_defaults()
     cfg.merge_from_file('configs/yamls/demo.yaml')
     
-    smpl_batch_size = 1
-    smpl = build_body_model(cfg.DEVICE, smpl_batch_size)
+    # Load SMPL model to get faces for renderer
+    from lib.models import build_body_model
+    smpl = build_body_model(cfg.DEVICE, 1)
+    faces = smpl.faces
     
     # Open video
     logger.info(f"Opening video: {video_path}")
@@ -64,19 +66,29 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
     
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    logger.info(f"Video: {width}x{height} @ {fps:.2f} FPS, {total_frames} frames")
+    logger.info(f"Original video: {orig_width}x{orig_height} @ {fps:.2f} FPS, {total_frames} frames")
     
-    # Setup renderer
+    # Video will be rotated 90° clockwise, so swap dimensions
+    width = orig_height
+    height = orig_width
+    logger.info(f"Rotated video: {width}x{height}")
+    
+    # Setup renderer with rotated dimensions
     logger.info("Initializing renderer...")
     focal_length = (width ** 2 + height ** 2) ** 0.5
-    renderer = Renderer(width, height, focal_length, cfg.DEVICE, smpl.faces)
+    renderer = Renderer(width, height, focal_length, cfg.DEVICE, faces)
     
-    # Setup video writer
+    # Create default camera (identity rotation, zero translation)
+    default_R = torch.eye(3)
+    default_T = torch.zeros(3)
+    renderer.create_camera(default_R, default_T)
+    
+    # Setup video writer with rotated dimensions
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -85,8 +97,10 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
     
     logger.info(f"Output video: {output_path}")
     logger.info("Rendering frames...")
+    logger.info(f"Results frames available: {sorted(list(results_by_frame.keys()))[:10]}...")  # Show first 10
     
     frame_idx = 0
+    rendered_count = 0
     pbar = tqdm(total=total_frames)
     
     while True:
@@ -94,31 +108,31 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
         if not ret:
             break
         
+        # Fix rotation (iPhone videos are often rotated 90° left)
+        # Rotate 90° clockwise to correct it
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        
+        # Convert BGR to RGB for rendering
+        img = frame[..., ::-1].copy()
+        
         # Get SMPL results for this frame
         if frame_idx in results_by_frame:
             for result in results_by_frame[frame_idx]:
-                # Reconstruct SMPL mesh
-                pose = torch.from_numpy(result['pose']).float().to(cfg.DEVICE).unsqueeze(0).unsqueeze(0)  # (1, 1, 144)
-                betas = torch.from_numpy(result['betas']).float().to(cfg.DEVICE).unsqueeze(0).unsqueeze(0)  # (1, 1, 10)
+                # Get pre-computed vertices (already in camera space with translation applied)
+                if 'verts' not in result:
+                    logger.warning(f"Frame {frame_idx}: NO VERTS IN RESULT!")
+                    continue
+                    
+                verts = torch.from_numpy(result['verts']).float().to(cfg.DEVICE)  # (6890, 3)
+                logger.info(f"Frame {frame_idx}: Rendering mesh with {verts.shape[0]} vertices, range [{verts.min():.2f}, {verts.max():.2f}]")
                 
-                # Run SMPL forward (WHAM's SMPL expects pred_rot6d as first arg)
-                smpl_output = smpl(
-                    pose,  # pred_rot6d
-                    betas,
-                    cam=None
-                )
-                
-                # Get vertices (SMPL output has .vertices attribute)
-                verts = smpl_output.vertices[0]  # Keep as tensor (6890, 3)
-                
-                # Apply translation (convert trans_cam to tensor)
-                trans_cam = torch.from_numpy(result['trans_cam']).float().to(cfg.DEVICE)
-                verts = verts + trans_cam
-                
-                # Render mesh on frame (renderer expects tensor)
-                frame = renderer.render_mesh(verts, frame)
+                # Render mesh on image (renderer expects RGB and tensor)
+                img = renderer.render_mesh(verts, img)
+                rendered_count += 1
         
-        out.write(frame)
+        # Convert RGB back to BGR for video writer
+        frame_out = img[..., ::-1].copy()
+        out.write(frame_out)
         frame_idx += 1
         pbar.update(1)
     
@@ -128,6 +142,7 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
     
     logger.info(f"✅ Video saved to {output_path}")
     logger.info(f"Rendered {frame_idx} frames")
+    logger.info(f"🎨 Actually rendered SMPL meshes on {rendered_count} frames")
 
 
 def main():
