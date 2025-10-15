@@ -140,6 +140,42 @@ class MotionEncoder(nn.Module):
         # Merge 3D keypoints with motion context
         motion_context = torch.cat((motion_context, pred_kp3d.reshape(self.b, self.f, -1)), dim=-1)
         return pred_kp3d, motion_context
+    
+    def forward_single(self, x, prev_kp3d, h0=None):
+        """
+        Forward pass for a single frame
+        
+        Args:
+            x: Input (B, 1, features) - single frame
+            prev_kp3d: Previous 3D keypoints (B, 1, n_joints*3)
+            h0: Hidden state from previous frame
+        
+        Returns:
+            pred_kp3d: Predicted 3D keypoints (B, 1, n_joints, 3)
+            motion_context: Motion context (B, 1, d_embed + n_joints*3)
+            new_h0: Updated hidden state
+        """
+        b, f = x.shape[:2]  # f should be 1
+        
+        # Embed input
+        x_embed = self.embed_layer(x.reshape(b, f, -1))
+        x_embed = self.pos_drop(x_embed)
+        
+        # Initialize hidden state if not provided
+        if h0 is None:
+            # Create initial input for neural_init
+            init_input = torch.cat([prev_kp3d, x[:, 0].reshape(b, 1, -1)], dim=-1)
+            h0 = self.neural_init(init_input)
+        
+        # Run single frame through LSTM regressor
+        (pred_kp3d, ), motion_context, new_h0 = self.regressor(
+            x_embed, [prev_kp3d], h0
+        )
+        
+        pred_kp3d = pred_kp3d.view(b, f, -1, 3)
+        motion_context = torch.cat((motion_context, pred_kp3d.reshape(b, f, -1)), dim=-1)
+        
+        return pred_kp3d, motion_context, new_h0
 
 
 class TrajectoryDecoder(nn.Module):
@@ -172,6 +208,34 @@ class TrajectoryDecoder(nn.Module):
         pred_vel = torch.cat(pred_vel_list, dim=1).view(b, f, -1)
         
         return pred_root, pred_vel
+    
+    def forward_single(self, x, prev_root, cam_angvel, h0=None):
+        """
+        Forward pass for a single frame
+        
+        Args:
+            x: Motion context (B, 1, d_embed)
+            prev_root: Previous root prediction (B, 1, 6) - rotation 6D
+            cam_angvel: Camera angular velocity (B, 1, 6) - rotation 6D representation!
+            h0: Hidden state from previous frame
+        
+        Returns:
+            pred_root: Current root (B, 2, 6) - [prev, current]
+            pred_vel: Root velocity (B, 1, 3)
+            new_h0: Updated hidden state
+        """
+        b, f = x.shape[:2]  # f should be 1
+        
+        # Run single frame through LSTM regressor
+        (pred_rootv, pred_rootr), _, new_h0 = self.regressor(
+            x, [prev_root, cam_angvel], h0
+        )
+        
+        # Concatenate previous and current root
+        pred_root = torch.cat([prev_root, pred_rootr], dim=1).view(b, 2, -1)
+        pred_vel = pred_rootv.view(b, f, -1)
+        
+        return pred_root, pred_vel, new_h0
         
 
 class MotionDecoder(nn.Module):
@@ -215,6 +279,43 @@ class MotionDecoder(nn.Module):
         pred_contact = torch.cat(pred_contact_list, dim=1).view(b, f, -1)
         
         return pred_pose, pred_shape, pred_cam, pred_contact
+    
+    def forward_single(self, x, prev_pose, h0=None):
+        """
+        Forward pass for a single frame
+        
+        Args:
+            x: Motion context (B, 1, d_embed)
+            prev_pose: Previous pose prediction (B, 1, n_pose*6)
+            h0: Hidden state from previous frame
+        
+        Returns:
+            pred_pose: SMPL pose (B, 1, n_pose*6)
+            pred_shape: SMPL shape (B, 1, 10)
+            pred_cam: Camera parameters (B, 1, 3)
+            pred_contact: Foot contact (B, 1, 4)
+            new_h0: Updated hidden state
+        """
+        b, f = x.shape[:2]  # f should be 1
+        
+        # Initialize hidden state if not provided
+        if h0 is None:
+            # Reshape to (B, 1, n_pose, 6), select MAIN_JOINTS, then reshape back
+            prev_pose_reshaped = prev_pose.reshape(b, f, self.n_pose, 6)
+            init_input = prev_pose_reshaped[:, :, _C.BMODEL.MAIN_JOINTS].reshape(b, 1, -1)
+            h0 = self.neural_init(init_input)
+        
+        # Run single frame through LSTM regressor
+        (pred_pose, pred_shape, pred_cam, pred_contact), _, new_h0 = self.regressor(
+            x, [prev_pose], h0
+        )
+        
+        pred_pose = pred_pose.view(b, f, -1)
+        pred_shape = pred_shape.view(b, f, -1)
+        pred_cam = pred_cam.view(b, f, -1)
+        pred_contact = pred_contact.view(b, f, -1)
+        
+        return pred_pose, pred_shape, pred_cam, pred_contact, new_h0
 
 
 class TrajectoryRefiner(nn.Module):

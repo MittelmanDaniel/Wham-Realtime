@@ -106,6 +106,111 @@ class Network(nn.Module):
         
         return output        
     
+    def forward_single_frame(self, x, inits, img_features=None, mask=None, init_root=None, cam_angvel=None,
+                            cam_intrinsics=None, bbox=None, res=None, return_y_up=False, 
+                            hidden_states=None):
+        """
+        Process a single frame while maintaining LSTM hidden states
+        
+        Args:
+            x: Input features (B, 1, features) - single frame
+            inits: (init_kp, init_smpl) initialization
+            img_features: Image features (B, 1, d_feat)
+            cam_angvel: Camera angular velocity (B, 1, 6) - rotation 6D representation!
+            hidden_states: Dict containing LSTM hidden states from previous frame
+                - h0_encoder: Hidden state for motion encoder
+                - h0_trajectory: Hidden state for trajectory decoder  
+                - h0_decoder: Hidden state for motion decoder
+                - prev_kp3d: Previous 3D keypoints prediction
+                - prev_pose: Previous pose prediction
+                - prev_root: Previous root prediction
+        
+        Returns:
+            output: SMPL parameters for this frame
+            new_hidden_states: Updated hidden states to pass to next frame
+        """
+        # Initialize hidden states if not provided
+        if hidden_states is None:
+            hidden_states = self._initialize_hidden_states()
+        
+        x = self.preprocess(x, mask)
+        init_kp, init_smpl = inits
+        
+        # Use previous predictions if available, else use inits
+        if hidden_states['prev_kp3d'] is not None:
+            prev_kp3d = hidden_states['prev_kp3d']
+        else:
+            prev_kp3d = init_kp
+            
+        if hidden_states['prev_pose'] is not None:
+            prev_pose = hidden_states['prev_pose']
+        else:
+            prev_pose = init_smpl
+            
+        if hidden_states['prev_root'] is not None:
+            prev_root = hidden_states['prev_root']
+        else:
+            prev_root = init_root
+        
+        # --------- Inference (single frame) --------- #
+        # Stage 1. Encode motion (single frame through LSTM)
+        pred_kp3d, motion_context, h0_encoder = self.motion_encoder.forward_single(
+            x, prev_kp3d, hidden_states['h0_encoder']
+        )
+        
+        # Stage 2. Decode global trajectory (single frame through LSTM)
+        pred_root, pred_vel, h0_trajectory = self.trajectory_decoder.forward_single(
+            motion_context, prev_root, cam_angvel, hidden_states['h0_trajectory']
+        )
+        
+        # Stage 3. Integrate features
+        if img_features is not None and self.integrator is not None:
+            motion_context = self.integrator(motion_context, img_features)
+        
+        # Stage 4. Decode SMPL motion (single frame through LSTM)
+        pred_pose, pred_shape, pred_cam, pred_contact, h0_decoder = self.motion_decoder.forward_single(
+            motion_context, prev_pose, hidden_states['h0_decoder']
+        )
+        # --------- #
+        
+        # --------- Register predictions --------- #
+        self.b, self.f = 1, 1  # Single frame
+        self.pred_kp3d = pred_kp3d
+        self.pred_root = pred_root
+        self.pred_vel = pred_vel
+        self.pred_pose = pred_pose
+        self.pred_shape = pred_shape
+        self.pred_cam = pred_cam
+        self.pred_contact = pred_contact
+        # --------- #
+        
+        # --------- Build SMPL --------- #
+        output = self.forward_smpl(cam_intrinsics=cam_intrinsics, bbox=bbox, res=res)
+        output = self.rollout(output, self.pred_root, self.pred_vel, return_y_up)
+        # --------- #
+        
+        # --------- Update hidden states --------- #
+        new_hidden_states = {
+            'h0_encoder': h0_encoder,
+            'h0_trajectory': h0_trajectory,
+            'h0_decoder': h0_decoder,
+            'prev_kp3d': pred_kp3d.reshape(1, 1, -1).detach(),  # Flatten to (B, 1, n_joints*3)
+            'prev_pose': pred_pose.detach(),  # Already (B, 1, n_pose*6)
+            'prev_root': pred_root[:, -1:].detach(),  # Take only the LAST root (B, 1, 6)
+        }
+        
+        return output, new_hidden_states
+    
+    def _initialize_hidden_states(self):
+        """Initialize hidden states for frame-by-frame processing"""
+        return {
+            'h0_encoder': None,
+            'h0_trajectory': None,
+            'h0_decoder': None,
+            'prev_kp3d': None,
+            'prev_pose': None,
+            'prev_root': None,
+        }
     
     def preprocess(self, x, mask):
         self.b, self.f = x.shape[:2]
