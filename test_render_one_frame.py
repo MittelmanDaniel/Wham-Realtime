@@ -41,10 +41,7 @@ if not ret:
 
 print(f"Frame shape: {frame.shape}")
 
-# Rotate
-frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-print(f"After rotation: {frame.shape}")
-
+# NO rotation - keep original dimensions to match WHAM processing
 # Convert to RGB
 img_rgb = frame[..., ::-1].copy()
 print(f"RGB image shape: {img_rgb.shape}")

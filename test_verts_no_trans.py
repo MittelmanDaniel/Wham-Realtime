@@ -40,3 +40,4 @@ print(f"  mean: {r0['verts'].mean(axis=0)}")
 
 print(f"\nAre they the same? {np.allclose(output.vertices[0].cpu().numpy(), r0['verts'], atol=0.01)}")
 
+

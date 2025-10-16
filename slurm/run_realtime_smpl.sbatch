@@ -44,3 +44,4 @@ python realtime_wham_with_smpl.py \
 echo ""
 echo "Done! Check output/realtime_smpl_test/ for results"
 
+

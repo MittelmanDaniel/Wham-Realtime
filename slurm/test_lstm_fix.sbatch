@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=test_shapes
-#SBATCH --output=logs/test_shapes_%j.out
-#SBATCH --error=logs/test_shapes_%j.err
+#SBATCH --job-name=test_lstm
+#SBATCH --output=logs/test_lstm_%j.out
+#SBATCH --error=logs/test_lstm_%j.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -24,6 +24,6 @@ python realtime_wham_framebyframe.py \
     --output-dir output/framebyframe_wham \
     --frame-skip 1 \
     --max-fps 30 \
-    --duration 2
+    --duration 10
 
-
+echo "Done! Check if LSTM reset messages appear in logs."

@@ -113,10 +113,11 @@ class FrameByFrameWHAM:
             x_tensor = torch.from_numpy(x_input).float().to(self.cfg.DEVICE).unsqueeze(0).unsqueeze(0)
             
             # Prepare bbox for WHAM (center_x, center_y, scale)
+            # NOTE: center in PIXELS, scale = max(width, height) / 200 (detector convention!)
             bbox_x1, bbox_y1, bbox_x2, bbox_y2 = bbox[:4]
-            bbox_cx = (bbox_x1 + bbox_x2) / 2 / width
-            bbox_cy = (bbox_y1 + bbox_y2) / 2 / height
-            bbox_scale = max(bbox_x2 - bbox_x1, bbox_y2 - bbox_y1) / max(width, height)
+            bbox_cx = (bbox_x1 + bbox_x2) / 2  # PIXELS
+            bbox_cy = (bbox_y1 + bbox_y2) / 2  # PIXELS
+            bbox_scale = max(bbox_x2 - bbox_x1, bbox_y2 - bbox_y1) / 200.0  # PIXELS / 200!
             bbox_tensor = torch.tensor([[[bbox_cx, bbox_cy, bbox_scale]]]).float().to(self.cfg.DEVICE)
             
             # Resolution tensor
@@ -148,8 +149,17 @@ class FrameByFrameWHAM:
             cam_angvel = torch.zeros(1, 1, 6).to(self.cfg.DEVICE)  # No camera motion for now
             
             # Run WHAM forward_single_frame!
+            # Reset LSTM hidden states every 10 frames to prevent convergence
+            if self.frame_count % 10 == 0:
+                logger.info(f"Resetting LSTM hidden states for person {person_id} at frame {self.frame_count}")
+                state['hidden_states'] = None
+            
+            # Add small noise to input features to force variation
+            noise_scale = 0.01
+            x_noise = x_tensor + torch.randn_like(x_tensor) * noise_scale
+            
             output, new_hidden_states = self.network.forward_single_frame(
-                x_tensor, inits, 
+                x_noise, inits,  # Use noisy input to force variation
                 mask=mask, 
                 init_root=state['init_root'], 
                 cam_angvel=cam_angvel,
@@ -187,8 +197,8 @@ class FrameByFrameWHAM:
                 'betas': output['betas'][0, 0].cpu().numpy(),  # (10,)
                 'trans_cam': trans_cam.cpu().numpy(),  # (3,)
                 'trans_world': output['trans_world'][0].cpu().numpy() if 'trans_world' in output else None,
-                # Save vertices WITHOUT trans_cam - verts_cam is already correct!
-                'verts': verts_cam.cpu().numpy(),  # (6890, 3) - DO NOT ADD trans_cam!
+                # Save final vertices (verts_cam + trans_cam) as in demo.py
+                'verts': (verts_cam + trans_cam.unsqueeze(0)).cpu().numpy(),  # (6890, 3)
             }
             
             smpl_params_list.append(smpl_params)
@@ -244,11 +254,16 @@ class FrameByFrameStream:
         if not self.cap.isOpened():
             raise ValueError(f"Cannot open video source: {source}")
         
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Get original dimensions (will be rotated 90° for portrait)
+        orig_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        orig_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         
-        logger.info(f"Resolution: {self.width}x{self.height}")
+        # Swap dimensions for 90° rotation (landscape → portrait)
+        self.width = orig_height
+        self.height = orig_width
+        
+        logger.info(f"Original: {orig_width}x{orig_height}, Rotated: {self.width}x{self.height}")
         logger.info(f"FPS: {self.fps:.2f}")
         logger.info(f"Frame skip: {frame_skip}")
         logger.info(f"⚡ TRUE FRAME-BY-FRAME MODE - LSTM REAL-TIME")
@@ -300,6 +315,9 @@ class FrameByFrameStream:
                 if not ret:
                     logger.warning("End of stream")
                     break
+                
+                # Rotate frame to portrait orientation (iPhone videos need 90° CW rotation)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                 
                 self.stats['frames_received'] += 1
                 

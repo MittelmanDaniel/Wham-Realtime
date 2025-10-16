@@ -71,14 +71,13 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    logger.info(f"Original video: {orig_width}x{orig_height} @ {fps:.2f} FPS, {total_frames} frames")
-    
-    # Video will be rotated 90° clockwise, so swap dimensions
+    # Swap dimensions for 90° rotation to match processing
     width = orig_height
     height = orig_width
-    logger.info(f"Rotated video: {width}x{height}")
     
-    # Setup renderer with rotated dimensions
+    logger.info(f"Original: {orig_width}x{orig_height}, Rotated: {width}x{height} @ {fps:.2f} FPS, {total_frames} frames")
+    
+    # Setup renderer with rotated dimensions (matching processing)
     logger.info("Initializing renderer...")
     focal_length = (width ** 2 + height ** 2) ** 0.5
     renderer = Renderer(width, height, focal_length, cfg.DEVICE, faces)
@@ -108,8 +107,7 @@ def visualize_smpl_results(video_path, smpl_results_path, output_path, fps_stats
         if not ret:
             break
         
-        # Fix rotation (iPhone videos are often rotated 90° left)
-        # Rotate 90° clockwise to correct it
+        # Rotate frame to match processing orientation
         frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         
         # Convert BGR to RGB for rendering
