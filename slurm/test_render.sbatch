@@ -17,3 +17,5 @@ conda activate wham
 python test_render_one_frame.py
 
 
+
+

@@ -51,3 +51,5 @@ if os.path.exists(viz_path):
         print("   → Small file suggests rendering failed")
 else:
     print("\n❌ No visualization found")
+
+

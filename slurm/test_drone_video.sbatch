@@ -28,3 +28,5 @@ python realtime_wham_framebyframe.py \
     --duration 15
 
 echo "Done! Check if drone video shows better pose tracking."
+
+

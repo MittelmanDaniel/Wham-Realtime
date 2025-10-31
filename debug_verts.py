@@ -53,3 +53,5 @@ print(f"  Y range: [{fb_frame100['verts'][:, 1].min():.2f}, {fb_frame100['verts'
 print(f"  Z range: [{fb_frame100['verts'][:, 2].min():.2f}, {fb_frame100['verts'][:, 2].max():.2f}]")
 
 
+
+

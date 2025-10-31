@@ -32,3 +32,5 @@ print(f"  Values: {r0['betas']}")
 print(f"  All zeros? {np.allclose(r0['betas'], 0)}")
 
 
+
+
